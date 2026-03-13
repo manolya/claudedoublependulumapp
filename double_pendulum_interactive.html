@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Double Pendulum — Interactive Chaos</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #08080d;
+    --fg: #e8e4df;
+    --accent: #ff4d2e;
+    --accent2: #ffa726;
+    --accent3: #4ecdc4;
+    --dim: #555565;
+    --panel-bg: rgba(12, 12, 20, 0.92);
+    --border: rgba(255,255,255,0.06);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Cormorant Garamond', serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    cursor: default;
+    user-select: none;
+  }
+
+  canvas#trail { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+  canvas#pendulum { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+  canvas#interaction { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; cursor: grab; }
+  canvas#interaction.dragging { cursor: grabbing; }
+
+  .grain {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 3; pointer-events: none; opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  }
+
+  .ui-layer { position: fixed; z-index: 10; pointer-events: none; }
+  .ui-layer > * { pointer-events: auto; }
+
+  /* Title */
+  .title-block {
+    position: fixed; top: 20px; left: 28px; z-index: 10;
+    animation: fadeIn 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .title-block h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300; font-size: 36px; letter-spacing: -1px; line-height: 1.1;
+  }
+  .title-block h1 span { color: var(--accent); }
+  .title-block .subtitle {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--dim); margin-top: 6px;
+  }
+
+  /* Controls */
+  .controls {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10;
+    display: flex; gap: 10px;
+    animation: fadeIn 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.8s both;
+  }
+  .controls button {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    color: var(--fg); padding: 7px 16px; border-radius: 6px;
+    cursor: pointer; transition: all 0.3s ease;
+  }
+  .controls button:hover {
+    background: rgba(255,77,46,0.12); border-color: var(--accent); color: var(--accent);
+  }
+  .controls button.active {
+    background: rgba(255,77,46,0.18); border-color: var(--accent); color: var(--accent);
+  }
+
+  /* Drag hint */
+  .drag-hint {
+    position: fixed; top: 58px; left: 50%; transform: translateX(-50%); z-index: 10;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: 1.5px; color: var(--accent3);
+    opacity: 0.7;
+    animation: fadeIn 1.2s cubic-bezier(0.16,1,0.3,1) 1.2s both;
+    transition: opacity 0.5s;
+  }
+  .drag-hint.hidden { opacity: 0; }
+
+  /* Bottom panel — equations + commentary */
+  .bottom-panel {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+    background: var(--panel-bg);
+    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border-top: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    animation: slideUp 1s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
+    max-height: 50vh;
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(60px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .panel-tabs {
+    display: flex; border-bottom: 1px solid var(--border);
+    padding: 0 20px; flex-shrink: 0;
+  }
+  .panel-tab {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    padding: 10px 16px; color: var(--dim); cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.3s;
+  }
+  .panel-tab:hover { color: var(--fg); }
+  .panel-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .panel-content { display: none; padding: 16px 24px; overflow: hidden; }
+  .panel-content.active { display: flex; }
+
+  /* Equations */
+  .eq-row {
+    display: flex; gap: 36px; flex: 1; flex-wrap: wrap;
+  }
+  .eq-section { flex: 1; min-width: 280px; }
+  .eq-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 8px;
+  }
+  .eq-content {
+    font-size: 14px; line-height: 2.1; font-weight: 300; font-style: italic;
+  }
+  .eq-content .hl1 { color: var(--accent); font-weight: 600; font-style: normal; }
+  .eq-content .hl2 { color: var(--accent2); font-weight: 600; font-style: normal; }
+  .eq-content .op { color: var(--dim); padding: 0 2px; }
+  .eq-content .note { color: var(--dim); font-size: 12px; font-style: normal; }
+
+  /* Commentary */
+  .commentary-container {
+    display: flex; gap: 20px; width: 100%; min-height: 160px;
+  }
+
+  .live-gauges {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px;
+    min-width: 260px; align-content: start;
+  }
+  .gauge-item {
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .gauge-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim);
+  }
+  .gauge-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px; font-weight: 500; transition: color 0.15s;
+  }
+  .gauge-bar {
+    height: 3px; border-radius: 2px; background: rgba(255,255,255,0.06);
+    overflow: hidden; margin-top: 2px;
+  }
+  .gauge-bar-fill {
+    height: 100%; border-radius: 2px; transition: width 0.08s linear;
+  }
+
+  .commentary-log {
+    flex: 1; overflow-y: auto; max-height: 160px;
+    display: flex; flex-direction: column; gap: 0;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+    padding-right: 8px;
+  }
+  .commentary-log::-webkit-scrollbar { width: 4px; }
+  .commentary-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+  .log-entry {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; line-height: 1.7; color: var(--dim);
+    padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.02);
+    animation: logFade 0.4s ease both;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  @keyframes logFade {
+    from { opacity: 0; transform: translateX(-6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .log-entry .time { color: rgba(255,255,255,0.15); margin-right: 8px; }
+  .log-entry .event { color: var(--fg); }
+  .log-entry .v1 { color: var(--accent); }
+  .log-entry .v2 { color: var(--accent2); }
+  .log-entry .v3 { color: var(--accent3); }
+  .log-entry.critical .event { color: var(--accent); font-weight: 500; }
+  .log-entry.info .event { color: var(--accent3); }
+
+  /* Charts mini */
+  .charts-container {
+    display: flex; gap: 16px; width: 100%; min-height: 140px;
+  }
+  .mini-chart {
+    flex: 1; position: relative; min-width: 0;
+  }
+  .mini-chart canvas {
+    width: 100%; height: 130px; display: block;
+  }
+  .mini-chart .chart-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 4px;
+  }
+
+  @media (max-width: 800px) {
+    .commentary-container { flex-direction: column; min-height: auto; }
+    .live-gauges { min-width: auto; grid-template-columns: 1fr 1fr; }
+    .eq-row { gap: 16px; }
+    .charts-container { flex-direction: column; }
+    .title-block h1 { font-size: 26px; }
+    .bottom-panel { max-height: 55vh; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="trail"></canvas>
+<canvas id="pendulum"></canvas>
+<canvas id="interaction"></canvas>
+<div class="grain"></div>
+
+<div class="title-block">
+  <h1>Double <span>Pendulum</span></h1>
+  <div class="subtitle">Interactive · Euler–Lagrange · Deterministic Chaos</div>
+</div>
+
+<div class="controls">
+  <button onclick="resetPendulum()">Reset</button>
+  <button onclick="clearTrail()">Clear Trail</button>
+  <button id="pauseBtn" onclick="togglePause()">Pause</button>
+</div>
+
+<div class="drag-hint" id="dragHint">⟵ CLICK & DRAG EITHER BOB TO REPOSITION ⟶</div>
+
+<!-- Bottom Panel -->
+<div class="bottom-panel">
+  <div class="panel-tabs">
+    <div class="panel-tab active" data-tab="commentary" onclick="switchTab('commentary')">Live Commentary</div>
+    <div class="panel-tab" data-tab="equations" onclick="switchTab('equations')">Equations</div>
+    <div class="panel-tab" data-tab="charts" onclick="switchTab('charts')">Phase Charts</div>
+  </div>
+
+  <!-- Commentary Tab -->
+  <div class="panel-content active" id="tab-commentary">
+    <div class="commentary-container">
+      <div class="live-gauges">
+        <div class="gauge-item">
+          <div class="gauge-label">θ₁ angle</div>
+          <div class="gauge-value" id="g-th1" style="color:var(--accent)">—</div>
+          <div class="gauge-bar"><div class="gauge-bar-fill" id="bar-th1" style="background:var(--accent);width:0%"></div></div>
+        </div>
+        <div class="gauge-item">
+          <div class="gauge-label">θ₂ angle</div>
+          <div class="gauge-value" id="g-th2" style="color:var(--accent2)">—</div>
+          <div class="gauge-bar"><div class="gauge-bar-fill" id="bar-th2" style="background:var(--accent2);width:0%"></div></div>
+        </div>
+        <div class="gauge-item">
+          <div class="gauge-label">ω₁ angular vel</div>
+          <div class="gauge-value" id="g-w1" style="color:var(--accent)">—</div>
+          <div class="gauge-bar"><div class="gauge-bar-fill" id="bar-w1" style="background:var(--accent);width:0%"></div></div>
+        </div>
+        <div class="gauge-item">
+          <div class="gauge-label">ω₂ angular vel</div>
+          <div class="gauge-value" id="g-w2" style="color:var(--accent2)">—</div>
+          <div class="gauge-bar"><div class="gauge-bar-fill" id="bar-w2" style="background:var(--accent2);width:0%"></div></div>
+        </div>
+        <div class="gauge-item">
+          <div class="gauge-label">Total Energy</div>
+          <div class="gauge-value" id="g-energy" style="color:var(--accent3)">—</div>
+        </div>
+        <div class="gauge-item">
+          <div class="gauge-label">Speed |v₂|</div>
+          <div class="gauge-value" id="g-speed" style="color:var(--accent3)">—</div>
+        </div>
+      </div>
+      <div class="commentary-log" id="commentaryLog"></div>
+    </div>
+  </div>
+
+  <!-- Equations Tab -->
+  <div class="panel-content" id="tab-equations">
+    <div class="eq-row">
+      <div class="eq-section">
+        <div class="eq-label">Lagrangian</div>
+        <div class="eq-content">
+          <span class="hl1">L</span> <span class="op">=</span> T <span class="op">−</span> V<br>
+          <span class="hl1">T</span> <span class="op">=</span> ½(m₁+m₂)l₁²θ̇₁² <span class="op">+</span> ½m₂l₂²θ̇₂² <span class="op">+</span> m₂l₁l₂θ̇₁θ̇₂cos(θ₁−θ₂)<br>
+          <span class="hl2">V</span> <span class="op">=</span> −(m₁+m₂)gl₁cos θ₁ <span class="op">−</span> m₂gl₂cos θ₂
+        </div>
+      </div>
+      <div class="eq-section">
+        <div class="eq-label">Equations of Motion</div>
+        <div class="eq-content">
+          <span class="hl1">θ̈₁</span> <span class="op">=</span> [−m₂l₁θ̇₁²sin(2Δθ)/2 − m₂l₂θ̇₂²sin(Δθ) − (m₁+m₂)g·sinθ₁ + m₂g·sinθ₂cos(Δθ)] / D₁<br>
+          <span class="hl2">θ̈₂</span> <span class="op">=</span> [(m₁+m₂)(l₁θ̇₁²sin(Δθ) − g·sinθ₂ + g·sinθ₁cos(Δθ)) + m₂l₂θ̇₂²sin(Δθ)cos(Δθ)] / D₂<br>
+          <span class="note">where Δθ = θ₁−θ₂ , D = l·(m₁ + m₂sin²Δθ)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Tab -->
+  <div class="panel-content" id="tab-charts">
+    <div class="charts-container">
+      <div class="mini-chart">
+        <div class="chart-label">θ₁ & θ₂ over time</div>
+        <canvas id="chartAngles"></canvas>
+      </div>
+      <div class="mini-chart">
+        <div class="chart-label">ω₁ & ω₂ angular velocities</div>
+        <canvas id="chartOmega"></canvas>
+      </div>
+      <div class="mini-chart">
+        <div class="chart-label">Phase portrait (θ₂ vs ω₂)</div>
+        <canvas id="chartPhase"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// === Canvas Setup ===
+const cTrail = document.getElementById('trail');
+const cPend = document.getElementById('pendulum');
+const cInter = document.getElementById('interaction');
+const ctxT = cTrail.getContext('2d');
+const ctxP = cPend.getContext('2d');
+const ctxI = cInter.getContext('2d');
+let W, H, cx, cy, dpr;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  [cTrail, cPend, cInter].forEach(c => {
+    c.width = W * dpr; c.height = H * dpr;
+    c.style.width = W + 'px'; c.style.height = H + 'px';
+    c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  });
+  cx = W / 2;
+  cy = H * 0.3;
+}
+resize();
+window.addEventListener('resize', () => { resize(); clearTrail(); });
+
+// === Physics ===
+const G = 9.81, m1 = 2.0, m2 = 1.5;
+let l1, l2;
+function calcLengths() {
+  const s = Math.min(W, H) * 0.14;
+  l1 = s; l2 = s * 0.85;
+}
+calcLengths();
+
+let th1, th2, w1, w2;
+let paused = false;
+let simTime = 0;
+
+function resetPendulum() {
+  th1 = Math.PI * 0.95; th2 = Math.PI * 0.7;
+  w1 = 0; w2 = 0; simTime = 0;
+  clearTrail(); clearCharts();
+  addLog('System reset — released from high angle', 'critical');
+  addLog(`θ₁=${deg(th1)}°  θ₂=${deg(th2)}°  — chaotic regime imminent`, 'info');
+}
+
+function clearTrail() { ctxT.clearRect(0, 0, W, H); trailPoints = []; }
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? 'Play' : 'Pause';
+  document.getElementById('pauseBtn').classList.toggle('active', paused);
+  addLog(paused ? 'Simulation paused' : 'Simulation resumed', 'info');
+}
+
+// Tab switching
+function switchTab(name) {
+  document.querySelectorAll('.panel-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.panel-content').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+}
+
+// === Derivatives & RK4 ===
+function derivs(t1, t2, o1, o2) {
+  const dt = t1 - t2, s = Math.sin(dt), c = Math.cos(dt);
+  const M = m1 + m2;
+  const d1 = l1 * (M - m2 * c * c);
+  const d2 = l2 * (M - m2 * c * c);
+  const a1 = (-m2*l1*o1*o1*Math.sin(2*dt)/2 - m2*l2*o2*o2*s - M*G*Math.sin(t1) + m2*G*Math.sin(t2)*c) / d1;
+  const a2 = (M*(l1*o1*o1*s - G*Math.sin(t2) + G*Math.sin(t1)*c) + m2*l2*o2*o2*s*c) / d2;
+  return [o1, o2, a1, a2];
+}
+
+function step(dt) {
+  const k1 = derivs(th1, th2, w1, w2);
+  const k2 = derivs(th1+k1[0]*dt/2, th2+k1[1]*dt/2, w1+k1[2]*dt/2, w2+k1[3]*dt/2);
+  const k3 = derivs(th1+k2[0]*dt/2, th2+k2[1]*dt/2, w1+k2[2]*dt/2, w2+k2[3]*dt/2);
+  const k4 = derivs(th1+k3[0]*dt, th2+k3[1]*dt, w1+k3[2]*dt, w2+k3[3]*dt);
+  th1 += (k1[0]+2*k2[0]+2*k3[0]+k4[0])*dt/6;
+  th2 += (k1[1]+2*k2[1]+2*k3[1]+k4[1])*dt/6;
+  w1  += (k1[2]+2*k2[2]+2*k3[2]+k4[2])*dt/6;
+  w2  += (k1[3]+2*k2[3]+2*k3[3]+k4[3])*dt/6;
+  simTime += dt;
+}
+
+function energy() {
+  const M = m1 + m2;
+  const T = 0.5*M*l1*l1*w1*w1 + 0.5*m2*l2*l2*w2*w2 + m2*l1*l2*w1*w2*Math.cos(th1-th2);
+  const V = -M*G*l1*Math.cos(th1) - m2*G*l2*Math.cos(th2);
+  return T + V;
+}
+
+function deg(r) { return ((r * 180 / Math.PI) % 360); }
+function normDeg(d) { d = d % 360; if (d > 180) d -= 360; if (d < -180) d += 360; return d; }
+
+// === Positions ===
+function getPos() {
+  const x1 = cx + l1*Math.sin(th1), y1 = cy + l1*Math.cos(th1);
+  const x2 = x1 + l2*Math.sin(th2), y2 = y1 + l2*Math.cos(th2);
+  return { x1, y1, x2, y2 };
+}
+
+// === Trail ===
+let trailPoints = [];
+const maxTrail = 3000;
+
+function drawTrail(x2, y2) {
+  const speed = Math.sqrt(w1*w1 + w2*w2);
+  trailPoints.push({ x: x2, y: y2, speed });
+  if (trailPoints.length > maxTrail) trailPoints.shift();
+
+  ctxT.fillStyle = 'rgba(8,8,13,0.015)';
+  ctxT.fillRect(0, 0, W, H);
+
+  for (let i = 1; i < trailPoints.length; i++) {
+    const p = trailPoints[i], pp = trailPoints[i-1];
+    const t = i / trailPoints.length;
+    const spd = Math.min(p.speed / 15, 1);
+    const r = Math.round(255*(1-spd*0.3));
+    const g = Math.round(77+spd*120);
+    const b = Math.round(46+spd*30);
+    ctxT.beginPath();
+    ctxT.moveTo(pp.x, pp.y); ctxT.lineTo(p.x, p.y);
+    ctxT.strokeStyle = `rgba(${r},${g},${b},${t*0.65})`;
+    ctxT.lineWidth = 0.8 + spd * 1.8;
+    ctxT.stroke();
+  }
+}
+
+// === Draw Pendulum ===
+function drawPendulum() {
+  const { x1, y1, x2, y2 } = getPos();
+  ctxP.clearRect(0, 0, W, H);
+
+  // Pivot glow
+  const pg = ctxP.createRadialGradient(cx, cy, 0, cx, cy, 50);
+  pg.addColorStop(0, 'rgba(255,77,46,0.06)'); pg.addColorStop(1, 'transparent');
+  ctxP.fillStyle = pg; ctxP.fillRect(cx-50, cy-50, 100, 100);
+
+  // Rods
+  ctxP.beginPath(); ctxP.moveTo(cx, cy); ctxP.lineTo(x1, y1);
+  ctxP.strokeStyle = 'rgba(232,228,223,0.45)'; ctxP.lineWidth = 2.2; ctxP.stroke();
+  ctxP.beginPath(); ctxP.moveTo(x1, y1); ctxP.lineTo(x2, y2);
+  ctxP.strokeStyle = 'rgba(232,228,223,0.3)'; ctxP.lineWidth = 1.8; ctxP.stroke();
+
+  // Glow bob1
+  const g1 = ctxP.createRadialGradient(x1, y1, 0, x1, y1, 30);
+  g1.addColorStop(0, 'rgba(255,77,46,0.22)'); g1.addColorStop(1, 'transparent');
+  ctxP.fillStyle = g1; ctxP.beginPath(); ctxP.arc(x1, y1, 30, 0, Math.PI*2); ctxP.fill();
+
+  // Glow bob2
+  const g2 = ctxP.createRadialGradient(x2, y2, 0, x2, y2, 26);
+  g2.addColorStop(0, 'rgba(255,167,38,0.22)'); g2.addColorStop(1, 'transparent');
+  ctxP.fillStyle = g2; ctxP.beginPath(); ctxP.arc(x2, y2, 26, 0, Math.PI*2); ctxP.fill();
+
+  // Pivot
+  ctxP.beginPath(); ctxP.arc(cx, cy, 4, 0, Math.PI*2);
+  ctxP.fillStyle = '#666'; ctxP.fill();
+
+  // Bob1
+  ctxP.beginPath(); ctxP.arc(x1, y1, 11, 0, Math.PI*2);
+  ctxP.fillStyle = '#ff4d2e'; ctxP.fill();
+  ctxP.strokeStyle = 'rgba(255,120,80,0.5)'; ctxP.lineWidth = 1.5; ctxP.stroke();
+
+  // Bob2
+  ctxP.beginPath(); ctxP.arc(x2, y2, 9, 0, Math.PI*2);
+  ctxP.fillStyle = '#ffa726'; ctxP.fill();
+  ctxP.strokeStyle = 'rgba(255,200,100,0.4)'; ctxP.lineWidth = 1.5; ctxP.stroke();
+
+  // Drag highlight
+  if (dragTarget) {
+    const dx = dragTarget === 1 ? x1 : x2;
+    const dy = dragTarget === 1 ? y1 : y2;
+    ctxP.beginPath(); ctxP.arc(dx, dy, 18, 0, Math.PI*2);
+    ctxP.strokeStyle = 'rgba(78,205,196,0.5)'; ctxP.lineWidth = 2;
+    ctxP.setLineDash([4, 4]); ctxP.stroke(); ctxP.setLineDash([]);
+  }
+
+  if (!paused) drawTrail(x2, y2);
+}
+
+// === Drag Interaction ===
+let dragTarget = null; // null, 1, or 2
+const hitRadius = 30;
+
+function getMousePos(e) {
+  const rect = cInter.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return { mx: clientX - rect.left, my: clientY - rect.top };
+}
+
+function hitTest(mx, my) {
+  const { x1, y1, x2, y2 } = getPos();
+  const d2 = Math.hypot(mx - x2, my - y2);
+  if (d2 < hitRadius) return 2;
+  const d1 = Math.hypot(mx - x1, my - y1);
+  if (d1 < hitRadius) return 1;
+  return null;
+}
+
+function onPointerDown(e) {
+  e.preventDefault();
+  const { mx, my } = getMousePos(e);
+  const hit = hitTest(mx, my);
+  if (hit) {
+    dragTarget = hit;
+    w1 = 0; w2 = 0;
+    cInter.classList.add('dragging');
+    document.getElementById('dragHint').classList.add('hidden');
+    addLog(`Grabbed m${hit} — drag to reposition`, 'info');
+  }
+}
+
+function onPointerMove(e) {
+  e.preventDefault();
+  if (!dragTarget) {
+    // Cursor hint
+    const { mx, my } = getMousePos(e);
+    const hit = hitTest(mx, my);
+    cInter.style.cursor = hit ? 'grab' : 'default';
+    return;
+  }
+
+  const { mx, my } = getMousePos(e);
+
+  if (dragTarget === 1) {
+    th1 = Math.atan2(mx - cx, my - cy);
+    w1 = 0; w2 = 0;
+  } else {
+    const { x1, y1 } = getPos();
+    th2 = Math.atan2(mx - x1, my - y1);
+    w1 = 0; w2 = 0;
+  }
+}
+
+function onPointerUp(e) {
+  if (dragTarget) {
+    addLog(`Released m${dragTarget} at θ${dragTarget}=${normDeg(deg(dragTarget===1?th1:th2)).toFixed(1)}° — evolution resumed`, 'critical');
+    dragTarget = null;
+    cInter.classList.remove('dragging');
+    clearTrail();
+  }
+}
+
+cInter.addEventListener('mousedown', onPointerDown);
+cInter.addEventListener('mousemove', onPointerMove);
+cInter.addEventListener('mouseup', onPointerUp);
+cInter.addEventListener('mouseleave', onPointerUp);
+cInter.addEventListener('touchstart', onPointerDown, { passive: false });
+cInter.addEventListener('touchmove', onPointerMove, { passive: false });
+cInter.addEventListener('touchend', onPointerUp);
+
+// === Commentary Log ===
+const logEl = document.getElementById('commentaryLog');
+const maxLogEntries = 60;
+let logCount = 0;
+
+function addLog(text, type = '') {
+  const entry = document.createElement('div');
+  entry.className = 'log-entry ' + type;
+  const t = simTime.toFixed(2);
+  entry.innerHTML = `<span class="time">${t}s</span> <span class="event">${text}</span>`;
+  logEl.appendChild(entry);
+  logCount++;
+  if (logCount > maxLogEntries) {
+    logEl.removeChild(logEl.firstChild);
+    logCount--;
+  }
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Event detection
+let lastFlip1 = 0, lastFlip2 = 0, flipCount1 = 0, flipCount2 = 0;
+let prevTh1 = 0, prevTh2 = 0;
+let peakSpeed = 0;
+let commentaryInterval = 0;
+
+function detectEvents() {
+  commentaryInterval++;
+  const d1 = normDeg(deg(th1));
+  const d2 = normDeg(deg(th2));
+  const spd = Math.sqrt(w1*w1 + w2*w2);
+  const tipSpeed = Math.abs(w1)*l1 + Math.abs(w2)*l2;
+
+  // Full rotation detection
+  const wraps1 = Math.floor(th1 / (2*Math.PI));
+  const wraps2 = Math.floor(th2 / (2*Math.PI));
+  if (wraps1 !== lastFlip1) {
+    flipCount1++;
+    addLog(`Bob₁ completed full rotation #${flipCount1} — <span class="v1">θ₁=${d1.toFixed(1)}°</span>`, 'critical');
+    lastFlip1 = wraps1;
+  }
+  if (wraps2 !== lastFlip2) {
+    flipCount2++;
+    addLog(`Bob₂ completed full rotation #${flipCount2} — <span class="v2">θ₂=${d2.toFixed(1)}°</span>`, 'critical');
+    lastFlip2 = wraps2;
+  }
+
+  // Peak speed
+  if (tipSpeed > peakSpeed * 1.3 && tipSpeed > 200) {
+    peakSpeed = tipSpeed;
+    addLog(`Peak tip velocity: <span class="v3">${tipSpeed.toFixed(0)} px/s</span> — energy surge`, '');
+  }
+
+  // Periodic state report
+  if (commentaryInterval % 120 === 0) {
+    const E = energy();
+    addLog(
+      `State: <span class="v1">θ₁=${d1.toFixed(1)}°</span> <span class="v2">θ₂=${d2.toFixed(1)}°</span>` +
+      ` ω₁=<span class="v1">${w1.toFixed(1)}</span> ω₂=<span class="v2">${w2.toFixed(1)}</span>` +
+      ` E=<span class="v3">${E.toFixed(1)}</span>`, ''
+    );
+  }
+
+  // Near-vertical detection
+  if (Math.abs(d1) < 5 && Math.abs(prevTh1) >= 5 && commentaryInterval > 30) {
+    addLog(`Bob₁ passing through vertical — <span class="v1">θ₁≈0°</span>`, 'info');
+  }
+  if (Math.abs(d2) < 5 && Math.abs(prevTh2) >= 5 && commentaryInterval > 30) {
+    addLog(`Bob₂ passing through vertical — <span class="v2">θ₂≈0°</span>`, 'info');
+  }
+
+  // Near-inverted
+  if (Math.abs(Math.abs(d1) - 180) < 8 && commentaryInterval % 60 === 0) {
+    addLog(`Bob₁ near inversion! <span class="v1">θ₁=${d1.toFixed(1)}°</span> — unstable equilibrium`, 'critical');
+  }
+
+  prevTh1 = d1; prevTh2 = d2;
+}
+
+// === Gauges Update ===
+function updateGauges() {
+  const d1 = normDeg(deg(th1)).toFixed(1);
+  const d2 = normDeg(deg(th2)).toFixed(1);
+  document.getElementById('g-th1').textContent = d1 + '°';
+  document.getElementById('g-th2').textContent = d2 + '°';
+  document.getElementById('g-w1').textContent = w1.toFixed(2) + ' rad/s';
+  document.getElementById('g-w2').textContent = w2.toFixed(2) + ' rad/s';
+  document.getElementById('g-energy').textContent = energy().toFixed(1) + ' J';
+  const tipSpd = (Math.abs(w1)*l1 + Math.abs(w2)*l2).toFixed(0);
+  document.getElementById('g-speed').textContent = tipSpd + ' px/s';
+
+  // Bars
+  document.getElementById('bar-th1').style.width = Math.min(Math.abs(d1)/180*100, 100) + '%';
+  document.getElementById('bar-th2').style.width = Math.min(Math.abs(d2)/180*100, 100) + '%';
+  document.getElementById('bar-w1').style.width = Math.min(Math.abs(w1)/15*100, 100) + '%';
+  document.getElementById('bar-w2').style.width = Math.min(Math.abs(w2)/15*100, 100) + '%';
+}
+
+// === Mini Charts ===
+const chartBufSize = 400;
+let chartData = { th1: [], th2: [], w1: [], w2: [], phase_th2: [], phase_w2: [] };
+
+function clearCharts() {
+  chartData = { th1: [], th2: [], w1: [], w2: [], phase_th2: [], phase_w2: [] };
+}
+
+function pushChartData() {
+  chartData.th1.push(normDeg(deg(th1)));
+  chartData.th2.push(normDeg(deg(th2)));
+  chartData.w1.push(w1);
+  chartData.w2.push(w2);
+  chartData.phase_th2.push(normDeg(deg(th2)));
+  chartData.phase_w2.push(w2);
+  if (chartData.th1.length > chartBufSize) {
+    chartData.th1.shift(); chartData.th2.shift();
+    chartData.w1.shift(); chartData.w2.shift();
+    chartData.phase_th2.shift(); chartData.phase_w2.shift();
+  }
+}
+
+function drawMiniChart(canvasId, datasets, yRange) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const cw = canvas.parentElement.clientWidth;
+  const ch = 130;
+  canvas.width = cw * dpr; canvas.height = ch * dpr;
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  ctx.clearRect(0, 0, cw, ch);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = ch * i / 4;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cw, y); ctx.stroke();
+  }
+  // Zero line
+  const zy = ch / 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.beginPath(); ctx.moveTo(0, zy); ctx.lineTo(cw, zy); ctx.stroke();
+
+  datasets.forEach(({ data, color }) => {
+    if (data.length < 2) return;
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < data.length; i++) {
+      const x = (i / (chartBufSize - 1)) * cw;
+      const y = ch / 2 - (data[i] / yRange) * (ch / 2);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  });
+}
+
+function drawPhaseChart() {
+  const canvas = document.getElementById('chartPhase');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const cw = canvas.parentElement.clientWidth;
+  const ch = 130;
+  canvas.width = cw * dpr; canvas.height = ch * dpr;
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cw, ch);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  for (let i = 0; i <= 4; i++) {
+    const y = ch * i / 4; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cw, y); ctx.stroke();
+    const x = cw * i / 4; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ch); ctx.stroke();
+  }
+
+  const pts = chartData.phase_th2;
+  const ws = chartData.phase_w2;
+  if (pts.length < 2) return;
+
+  for (let i = 1; i < pts.length; i++) {
+    const t = i / pts.length;
+    const x = cw/2 + (pts[i] / 180) * (cw/2);
+    const y = ch/2 - (ws[i] / 20) * (ch/2);
+    ctx.beginPath();
+    ctx.arc(x, y, 1.2, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,167,38,${t * 0.8})`;
+    ctx.fill();
+  }
+}
+
+let chartFrame = 0;
+function updateCharts() {
+  chartFrame++;
+  if (chartFrame % 3 !== 0) return;
+  pushChartData();
+
+  // Only draw if charts tab is active
+  const chartsActive = document.getElementById('tab-charts').classList.contains('active');
+  if (!chartsActive) return;
+
+  drawMiniChart('chartAngles', [
+    { data: chartData.th1, color: 'rgba(255,77,46,0.8)' },
+    { data: chartData.th2, color: 'rgba(255,167,38,0.8)' }
+  ], 180);
+
+  drawMiniChart('chartOmega', [
+    { data: chartData.w1, color: 'rgba(255,77,46,0.8)' },
+    { data: chartData.w2, color: 'rgba(255,167,38,0.8)' }
+  ], 20);
+
+  drawPhaseChart();
+}
+
+// === Main Loop ===
+const stepsPerFrame = 8;
+const dt = 0.004;
+
+resetPendulum();
+
+function animate() {
+  if (!paused && !dragTarget) {
+    for (let i = 0; i < stepsPerFrame; i++) step(dt);
+    detectEvents();
+  }
+  drawPendulum();
+  updateGauges();
+  updateCharts();
+  requestAnimationFrame(animate);
+}
+
+animate();
+
+// Redraw charts when switching to charts tab
+document.querySelector('[data-tab="charts"]').addEventListener('click', () => {
+  setTimeout(() => {
+    drawMiniChart('chartAngles', [
+      { data: chartData.th1, color: 'rgba(255,77,46,0.8)' },
+      { data: chartData.th2, color: 'rgba(255,167,38,0.8)' }
+    ], 180);
+    drawMiniChart('chartOmega', [
+      { data: chartData.w1, color: 'rgba(255,77,46,0.8)' },
+      { data: chartData.w2, color: 'rgba(255,167,38,0.8)' }
+    ], 20);
+    drawPhaseChart();
+  }, 50);
+});
+</script>
+</body>
+</html>
